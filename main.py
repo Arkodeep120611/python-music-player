@@ -51,7 +51,7 @@ class MusicPlayerWindow(QMainWindow):
         self.playlist_widget = QListWidget()
         main_layout.addWidget(self.playlist_widget)
 
-        # Seek row container (we will show/hide this)
+        # Seek row container (shown only when supported)
         self.seek_row_widget = QWidget()
         seek_layout = QHBoxLayout()
         seek_layout.setContentsMargins(0, 0, 0, 0)
@@ -112,6 +112,7 @@ class MusicPlayerWindow(QMainWindow):
         # Wire player signals
         self.player.positionChanged.connect(self.on_position_changed)
         self.player.durationChanged.connect(self.on_duration_changed)
+        self.player.mediaStatusChanged.connect(self.on_media_status_changed)
 
         # Wire seek slider interactions
         self.seek_slider.sliderPressed.connect(self.on_seek_pressed)
@@ -265,6 +266,34 @@ class MusicPlayerWindow(QMainWindow):
         target_ms = self.seek_slider.value()
         self.player.setPosition(target_ms)
         self.is_user_seeking = False
+
+    # ---------- Step 13: auto-next on end ----------
+
+    def on_media_status_changed(self, status):
+        """Auto-play next track when current one ends."""
+        if status != QMediaPlayer.EndOfMedia:
+            return
+
+        total_items = self.playlist_widget.count()
+        if total_items == 0:
+            self.now_playing_label.setText("Now Playing: Playlist is empty")
+            return
+
+        current_row = self.playlist_widget.currentRow()
+
+        # No valid selection -> stop safely
+        if current_row < 0:
+            self.stop_song()
+            return
+
+        next_row = current_row + 1
+        if next_row < total_items:
+            self.playlist_widget.setCurrentRow(next_row)
+            self.play_selected_song()
+        else:
+            # End of playlist
+            self.stop_song()
+            self.now_playing_label.setText("Now Playing: End of playlist")
 
     @staticmethod
     def format_ms(ms):
