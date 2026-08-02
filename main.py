@@ -136,6 +136,38 @@ class MusicPlayerWindow(QMainWindow):
         clear_action.triggered.connect(self.clear_playlist)
         file_menu.addAction(clear_action)
 
+        file_menu.addSeparator()
+
+        save_playlist_action = QAction("Save Playlist (.m3u)...", self)
+        save_playlist_action.triggered.connect(self.save_playlist_m3u)
+        file_menu.addAction(save_playlist_action)
+
+        load_playlist_action = QAction("Load Playlist (.m3u)...", self)
+        load_playlist_action.triggered.connect(self.load_playlist_m3u)
+        file_menu.addAction(load_playlist_action)
+
+    # ---------- Playlist add helpers ----------
+
+    def add_song_path_to_playlist(self, path):
+        """Add a single audio path if not duplicate. Returns True if added."""
+        if not path:
+            return False
+
+        normalized_path = os.path.normpath(path)
+
+        if normalized_path in self.loaded_file_paths:
+            return False
+
+        filename = os.path.basename(path)
+        item = QListWidgetItem(filename)
+        item.setData(Qt.UserRole, path)
+        self.playlist_widget.addItem(item)
+
+        self.loaded_file_paths.add(normalized_path)
+        return True
+
+    # ---------- File open / clear ----------
+
     def open_files(self):
         file_paths, _ = QFileDialog.getOpenFileNames(
             self,
@@ -151,20 +183,10 @@ class MusicPlayerWindow(QMainWindow):
         skipped_count = 0
 
         for path in file_paths:
-            normalized_path = os.path.normpath(path)
-
-            # Prevent duplicate entries
-            if normalized_path in self.loaded_file_paths:
+            if self.add_song_path_to_playlist(path):
+                added_count += 1
+            else:
                 skipped_count += 1
-                continue
-
-            filename = os.path.basename(path)
-            item = QListWidgetItem(filename)
-            item.setData(Qt.UserRole, path)
-            self.playlist_widget.addItem(item)
-
-            self.loaded_file_paths.add(normalized_path)
-            added_count += 1
 
         if added_count > 0 and skipped_count == 0:
             self.now_playing_label.setText(f"Now Playing: Added {added_count} song(s)")
@@ -189,6 +211,95 @@ class MusicPlayerWindow(QMainWindow):
         self.total_time_label.setText("00:00")
 
         self.now_playing_label.setText("Now Playing: Playlist cleared")
+
+    # ---------- Step 15: Save / Load .m3u ----------
+
+    def save_playlist_m3u(self):
+        """Save current playlist as M3U file (absolute paths)."""
+        total_items = self.playlist_widget.count()
+        if total_items == 0:
+            self.now_playing_label.setText("Now Playing: Playlist is empty, nothing to save")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Playlist",
+            "",
+            "M3U Playlist (*.m3u);;All Files (*)",
+        )
+
+        if not file_path:
+            return
+
+        if not file_path.lower().endswith(".m3u"):
+            file_path += ".m3u"
+
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write("#EXTM3U\n")
+                for i in range(total_items):
+                    item = self.playlist_widget.item(i)
+                    song_path = item.data(Qt.UserRole)
+                    if song_path:
+                        f.write(f"{song_path}\n")
+
+            self.now_playing_label.setText(f"Now Playing: Playlist saved to {os.path.basename(file_path)}")
+        except Exception as e:
+            self.now_playing_label.setText(f"Now Playing: Failed to save playlist ({e})")
+
+    def load_playlist_m3u(self):
+        """Load songs from an M3U file. Existing playlist is cleared first."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Playlist",
+            "",
+            "M3U Playlist (*.m3u);;All Files (*)",
+        )
+
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                lines = [line.strip() for line in f if line.strip()]
+        except Exception as e:
+            self.now_playing_label.setText(f"Now Playing: Failed to load playlist ({e})")
+            return
+
+        # Clear current playlist before loading new one
+        self.clear_playlist()
+
+        base_dir = os.path.dirname(file_path)
+        added_count = 0
+        missing_count = 0
+
+        for line in lines:
+            # Skip comments/metadata
+            if line.startswith("#"):
+                continue
+
+            candidate_path = line
+
+            # Support relative paths inside .m3u
+            if not os.path.isabs(candidate_path):
+                candidate_path = os.path.normpath(os.path.join(base_dir, candidate_path))
+
+            if os.path.exists(candidate_path):
+                if self.add_song_path_to_playlist(candidate_path):
+                    added_count += 1
+            else:
+                missing_count += 1
+
+        if added_count > 0 and missing_count == 0:
+            self.now_playing_label.setText(f"Now Playing: Loaded {added_count} song(s) from playlist")
+        elif added_count > 0 and missing_count > 0:
+            self.now_playing_label.setText(
+                f"Now Playing: Loaded {added_count}, missing {missing_count} file(s)"
+            )
+        else:
+            self.now_playing_label.setText("Now Playing: No valid songs found in playlist")
+
+    # ---------- Playback controls ----------
 
     def play_item_from_double_click(self, item):
         """Play the double-clicked item immediately."""
