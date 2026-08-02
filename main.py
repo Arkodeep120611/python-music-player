@@ -1,9 +1,12 @@
+import os
 import sys
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
-    QLabel,
+    QFileDialog,
     QHBoxLayout,
+    QLabel,
     QListWidget,
     QMainWindow,
     QPushButton,
@@ -51,6 +54,33 @@ class MusicPlayerWindow(QMainWindow):
         controls_layout.addWidget(self.next_button)
 
         main_layout.addLayout(controls_layout)
+
+        # Build menu
+        self._create_menu()
+
+    def _create_menu(self):
+        """Create the menu bar and wire menu actions."""
+        file_menu = self.menuBar().addMenu("File")
+
+        open_action = QAction("Open Music Files...", self)
+        open_action.triggered.connect(self.open_files)
+        file_menu.addAction(open_action)
+
+    def open_files(self):
+        """Open file dialog, select audio files, and append to playlist."""
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Music Files",
+            "",
+            "Audio Files (*.mp3 *.wav *.flac *.ogg *.m4a);;All Files (*)",
+        )
+
+        if not file_paths:
+            return
+
+        for path in file_paths:
+            filename = os.path.basename(path)
+            self.playlist_widget.addItem(filename)
 
 
 def main():
