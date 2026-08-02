@@ -34,6 +34,9 @@ class MusicPlayerWindow(QMainWindow):
         self.is_user_seeking = False
         self.seek_supported_for_current_track = False
 
+        # Track loaded file paths to prevent duplicates
+        self.loaded_file_paths = set()
+
         # Central container
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -50,6 +53,9 @@ class MusicPlayerWindow(QMainWindow):
         # Playlist area
         self.playlist_widget = QListWidget()
         main_layout.addWidget(self.playlist_widget)
+
+        # Double-click item to play immediately
+        self.playlist_widget.itemDoubleClicked.connect(self.play_item_from_double_click)
 
         # Seek row container (shown only when supported)
         self.seek_row_widget = QWidget()
@@ -121,9 +127,14 @@ class MusicPlayerWindow(QMainWindow):
 
     def _create_menu(self):
         file_menu = self.menuBar().addMenu("File")
+
         open_action = QAction("Open Music Files...", self)
         open_action.triggered.connect(self.open_files)
         file_menu.addAction(open_action)
+
+        clear_action = QAction("Clear Playlist", self)
+        clear_action.triggered.connect(self.clear_playlist)
+        file_menu.addAction(clear_action)
 
     def open_files(self):
         file_paths, _ = QFileDialog.getOpenFileNames(
@@ -136,11 +147,54 @@ class MusicPlayerWindow(QMainWindow):
         if not file_paths:
             return
 
+        added_count = 0
+        skipped_count = 0
+
         for path in file_paths:
+            normalized_path = os.path.normpath(path)
+
+            # Prevent duplicate entries
+            if normalized_path in self.loaded_file_paths:
+                skipped_count += 1
+                continue
+
             filename = os.path.basename(path)
             item = QListWidgetItem(filename)
             item.setData(Qt.UserRole, path)
             self.playlist_widget.addItem(item)
+
+            self.loaded_file_paths.add(normalized_path)
+            added_count += 1
+
+        if added_count > 0 and skipped_count == 0:
+            self.now_playing_label.setText(f"Now Playing: Added {added_count} song(s)")
+        elif added_count > 0 and skipped_count > 0:
+            self.now_playing_label.setText(
+                f"Now Playing: Added {added_count}, skipped {skipped_count} duplicate(s)"
+            )
+        else:
+            self.now_playing_label.setText("Now Playing: All selected files were duplicates")
+
+    def clear_playlist(self):
+        """Clear playlist items and reset UI/player state."""
+        self.player.stop()
+        self.playlist_widget.clear()
+        self.loaded_file_paths.clear()
+
+        self.seek_supported_for_current_track = False
+        self.seek_row_widget.hide()
+        self.seek_slider.setRange(0, 0)
+        self.seek_slider.setValue(0)
+        self.current_time_label.setText("00:00")
+        self.total_time_label.setText("00:00")
+
+        self.now_playing_label.setText("Now Playing: Playlist cleared")
+
+    def play_item_from_double_click(self, item):
+        """Play the double-clicked item immediately."""
+        row = self.playlist_widget.row(item)
+        self.playlist_widget.setCurrentRow(row)
+        self.play_selected_song()
 
     def play_selected_song(self):
         current_item = self.playlist_widget.currentItem()
@@ -267,7 +321,7 @@ class MusicPlayerWindow(QMainWindow):
         self.player.setPosition(target_ms)
         self.is_user_seeking = False
 
-    # ---------- Step 13: auto-next on end ----------
+    # ---------- Auto-next on end ----------
 
     def on_media_status_changed(self, status):
         """Auto-play next track when current one ends."""
