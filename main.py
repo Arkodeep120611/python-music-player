@@ -1,5 +1,6 @@
 import os
 import sys
+import random
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QAction
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
@@ -22,7 +23,7 @@ class MusicPlayerWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Python Music Player")
-        self.resize(900, 600)
+        self.resize(980, 620)
 
         # Audio engine setup
         self.audio_output = QAudioOutput()
@@ -34,8 +35,12 @@ class MusicPlayerWindow(QMainWindow):
         self.is_user_seeking = False
         self.seek_supported_for_current_track = False
 
-        # Track loaded file paths to prevent duplicates
+        # Playlist state
         self.loaded_file_paths = set()
+
+        # Playback modes
+        self.shuffle_enabled = False
+        self.repeat_mode = "off"  # one of: off, one, all
 
         # Central container
         central_widget = QWidget()
@@ -53,8 +58,6 @@ class MusicPlayerWindow(QMainWindow):
         # Playlist area
         self.playlist_widget = QListWidget()
         main_layout.addWidget(self.playlist_widget)
-
-        # Double-click item to play immediately
         self.playlist_widget.itemDoubleClicked.connect(self.play_item_from_double_click)
 
         # Seek row container (shown only when supported)
@@ -73,7 +76,6 @@ class MusicPlayerWindow(QMainWindow):
         seek_layout.addWidget(self.total_time_label)
         main_layout.addWidget(self.seek_row_widget)
 
-        # Hide by default; show only when duration is valid
         self.seek_row_widget.hide()
 
         # Controls row
@@ -91,13 +93,20 @@ class MusicPlayerWindow(QMainWindow):
         controls_layout.addWidget(self.next_button)
         main_layout.addLayout(controls_layout)
 
+        # Mode controls row
+        mode_layout = QHBoxLayout()
+        self.shuffle_button = QPushButton("Shuffle: Off")
+        self.repeat_button = QPushButton("Repeat: Off")
+        mode_layout.addWidget(self.shuffle_button)
+        mode_layout.addWidget(self.repeat_button)
+        main_layout.addLayout(mode_layout)
+
         # Volume row
         volume_layout = QHBoxLayout()
         volume_label = QLabel("Volume")
         self.volume_slider = QSlider(Qt.Horizontal)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(50)
-
         volume_layout.addWidget(volume_label)
         volume_layout.addWidget(self.volume_slider)
         main_layout.addLayout(volume_layout)
@@ -105,22 +114,26 @@ class MusicPlayerWindow(QMainWindow):
         # Build menu
         self._create_menu()
 
-        # Wire button actions
+        # Wire playback controls
         self.play_button.clicked.connect(self.play_selected_song)
         self.pause_button.clicked.connect(self.toggle_pause_resume)
         self.stop_button.clicked.connect(self.stop_song)
         self.next_button.clicked.connect(self.play_next_song)
         self.prev_button.clicked.connect(self.play_previous_song)
 
-        # Wire volume slider
+        # Wire mode controls
+        self.shuffle_button.clicked.connect(self.toggle_shuffle)
+        self.repeat_button.clicked.connect(self.cycle_repeat_mode)
+
+        # Volume
         self.volume_slider.valueChanged.connect(self.change_volume)
 
-        # Wire player signals
+        # Player signals
         self.player.positionChanged.connect(self.on_position_changed)
         self.player.durationChanged.connect(self.on_duration_changed)
         self.player.mediaStatusChanged.connect(self.on_media_status_changed)
 
-        # Wire seek slider interactions
+        # Seek slider interactions
         self.seek_slider.sliderPressed.connect(self.on_seek_pressed)
         self.seek_slider.sliderReleased.connect(self.on_seek_released)
         self.seek_slider.sliderMoved.connect(self.on_seek_moved)
@@ -146,15 +159,13 @@ class MusicPlayerWindow(QMainWindow):
         load_playlist_action.triggered.connect(self.load_playlist_m3u)
         file_menu.addAction(load_playlist_action)
 
-    # ---------- Playlist add helpers ----------
+    # ---------- Playlist helpers ----------
 
     def add_song_path_to_playlist(self, path):
-        """Add a single audio path if not duplicate. Returns True if added."""
         if not path:
             return False
 
         normalized_path = os.path.normpath(path)
-
         if normalized_path in self.loaded_file_paths:
             return False
 
@@ -166,8 +177,6 @@ class MusicPlayerWindow(QMainWindow):
         self.loaded_file_paths.add(normalized_path)
         return True
 
-    # ---------- File open / clear ----------
-
     def open_files(self):
         file_paths, _ = QFileDialog.getOpenFileNames(
             self,
@@ -175,7 +184,6 @@ class MusicPlayerWindow(QMainWindow):
             "",
             "Audio Files (*.mp3 *.wav *.flac *.ogg *.m4a);;All Files (*)",
         )
-
         if not file_paths:
             return
 
@@ -198,7 +206,6 @@ class MusicPlayerWindow(QMainWindow):
             self.now_playing_label.setText("Now Playing: All selected files were duplicates")
 
     def clear_playlist(self):
-        """Clear playlist items and reset UI/player state."""
         self.player.stop()
         self.playlist_widget.clear()
         self.loaded_file_paths.clear()
@@ -212,10 +219,9 @@ class MusicPlayerWindow(QMainWindow):
 
         self.now_playing_label.setText("Now Playing: Playlist cleared")
 
-    # ---------- Step 15: Save / Load .m3u ----------
+    # ---------- Save / Load .m3u ----------
 
     def save_playlist_m3u(self):
-        """Save current playlist as M3U file (absolute paths)."""
         total_items = self.playlist_widget.count()
         if total_items == 0:
             self.now_playing_label.setText("Now Playing: Playlist is empty, nothing to save")
@@ -227,7 +233,6 @@ class MusicPlayerWindow(QMainWindow):
             "",
             "M3U Playlist (*.m3u);;All Files (*)",
         )
-
         if not file_path:
             return
 
@@ -243,19 +248,19 @@ class MusicPlayerWindow(QMainWindow):
                     if song_path:
                         f.write(f"{song_path}\n")
 
-            self.now_playing_label.setText(f"Now Playing: Playlist saved to {os.path.basename(file_path)}")
+            self.now_playing_label.setText(
+                f"Now Playing: Playlist saved to {os.path.basename(file_path)}"
+            )
         except Exception as e:
             self.now_playing_label.setText(f"Now Playing: Failed to save playlist ({e})")
 
     def load_playlist_m3u(self):
-        """Load songs from an M3U file. Existing playlist is cleared first."""
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Load Playlist",
             "",
             "M3U Playlist (*.m3u);;All Files (*)",
         )
-
         if not file_path:
             return
 
@@ -266,7 +271,6 @@ class MusicPlayerWindow(QMainWindow):
             self.now_playing_label.setText(f"Now Playing: Failed to load playlist ({e})")
             return
 
-        # Clear current playlist before loading new one
         self.clear_playlist()
 
         base_dir = os.path.dirname(file_path)
@@ -274,13 +278,10 @@ class MusicPlayerWindow(QMainWindow):
         missing_count = 0
 
         for line in lines:
-            # Skip comments/metadata
             if line.startswith("#"):
                 continue
 
             candidate_path = line
-
-            # Support relative paths inside .m3u
             if not os.path.isabs(candidate_path):
                 candidate_path = os.path.normpath(os.path.join(base_dir, candidate_path))
 
@@ -302,7 +303,6 @@ class MusicPlayerWindow(QMainWindow):
     # ---------- Playback controls ----------
 
     def play_item_from_double_click(self, item):
-        """Play the double-clicked item immediately."""
         row = self.playlist_widget.row(item)
         self.playlist_widget.setCurrentRow(row)
         self.play_selected_song()
@@ -320,7 +320,7 @@ class MusicPlayerWindow(QMainWindow):
             self.now_playing_label.setText("Now Playing: Invalid file path")
             return
 
-        # Reset seek UI state before loading new media
+        # Reset seek UI before loading media
         self.seek_supported_for_current_track = False
         self.seek_row_widget.hide()
         self.seek_slider.setRange(0, 0)
@@ -363,11 +363,18 @@ class MusicPlayerWindow(QMainWindow):
             return
 
         current_row = self.playlist_widget.currentRow()
-        if current_row == -1:
-            self.playlist_widget.setCurrentRow(0)
-        else:
-            self.playlist_widget.setCurrentRow(min(current_row + 1, total_items - 1))
 
+        if self.shuffle_enabled:
+            next_row = self.get_random_row(exclude_row=current_row)
+            if next_row is None:
+                next_row = 0
+        else:
+            if current_row == -1:
+                next_row = 0
+            else:
+                next_row = min(current_row + 1, total_items - 1)
+
+        self.playlist_widget.setCurrentRow(next_row)
         self.play_selected_song()
 
     def play_previous_song(self):
@@ -377,23 +384,54 @@ class MusicPlayerWindow(QMainWindow):
             return
 
         current_row = self.playlist_widget.currentRow()
-        if current_row == -1:
-            self.playlist_widget.setCurrentRow(0)
-        else:
-            self.playlist_widget.setCurrentRow(max(current_row - 1, 0))
 
+        if self.shuffle_enabled:
+            prev_row = self.get_random_row(exclude_row=current_row)
+            if prev_row is None:
+                prev_row = 0
+        else:
+            if current_row == -1:
+                prev_row = 0
+            else:
+                prev_row = max(current_row - 1, 0)
+
+        self.playlist_widget.setCurrentRow(prev_row)
         self.play_selected_song()
 
     def change_volume(self, value):
         self.audio_output.setVolume(value / 100.0)
 
-    # ---------- Seek logic with safe fallback ----------
+    # ---------- Shuffle + Repeat ----------
+
+    def toggle_shuffle(self):
+        self.shuffle_enabled = not self.shuffle_enabled
+        self.shuffle_button.setText("Shuffle: On" if self.shuffle_enabled else "Shuffle: Off")
+
+    def cycle_repeat_mode(self):
+        # Cycle: off -> all -> one -> off
+        if self.repeat_mode == "off":
+            self.repeat_mode = "all"
+            self.repeat_button.setText("Repeat: All")
+        elif self.repeat_mode == "all":
+            self.repeat_mode = "one"
+            self.repeat_button.setText("Repeat: One")
+        else:
+            self.repeat_mode = "off"
+            self.repeat_button.setText("Repeat: Off")
+
+    def get_random_row(self, exclude_row):
+        total_items = self.playlist_widget.count()
+        if total_items <= 1:
+            return None
+
+        choices = [i for i in range(total_items) if i != exclude_row]
+        if not choices:
+            return None
+        return random.choice(choices)
+
+    # ---------- Seek logic (safe fallback) ----------
 
     def on_duration_changed(self, duration_ms):
-        """
-        If duration is valid (>0), show seek row and enable seeking.
-        If duration is invalid (<=0), hide seek row (unsupported/unknown seek case).
-        """
         if duration_ms and duration_ms > 0:
             self.seek_supported_for_current_track = True
             self.seek_row_widget.show()
@@ -432,10 +470,9 @@ class MusicPlayerWindow(QMainWindow):
         self.player.setPosition(target_ms)
         self.is_user_seeking = False
 
-    # ---------- Auto-next on end ----------
+    # ---------- End-of-track handling with repeat/shuffle ----------
 
     def on_media_status_changed(self, status):
-        """Auto-play next track when current one ends."""
         if status != QMediaPlayer.EndOfMedia:
             return
 
@@ -446,7 +483,40 @@ class MusicPlayerWindow(QMainWindow):
 
         current_row = self.playlist_widget.currentRow()
 
-        # No valid selection -> stop safely
+        # Repeat One: restart same track WITHOUT reloading source
+        if self.repeat_mode == "one":
+            if current_row < 0:
+                current_row = 0
+                self.playlist_widget.setCurrentRow(current_row)
+
+            self.player.setPosition(0)
+            self.player.play()
+
+            current_item = self.playlist_widget.currentItem()
+            if current_item:
+                self.now_playing_label.setText(f"Now Playing: {current_item.text()}")
+            else:
+                self.now_playing_label.setText("Now Playing")
+            return
+
+        # Shuffle behavior
+        if self.shuffle_enabled:
+            next_row = self.get_random_row(exclude_row=current_row)
+            if next_row is None:
+                # only one song
+                if self.repeat_mode == "all":
+                    self.playlist_widget.setCurrentRow(0)
+                    self.play_selected_song()
+                else:
+                    self.stop_song()
+                    self.now_playing_label.setText("Now Playing: End of playlist")
+                return
+
+            self.playlist_widget.setCurrentRow(next_row)
+            self.play_selected_song()
+            return
+
+        # Non-shuffle sequential behavior
         if current_row < 0:
             self.stop_song()
             return
@@ -456,9 +526,13 @@ class MusicPlayerWindow(QMainWindow):
             self.playlist_widget.setCurrentRow(next_row)
             self.play_selected_song()
         else:
-            # End of playlist
-            self.stop_song()
-            self.now_playing_label.setText("Now Playing: End of playlist")
+            # End reached
+            if self.repeat_mode == "all":
+                self.playlist_widget.setCurrentRow(0)
+                self.play_selected_song()
+            else:
+                self.stop_song()
+                self.now_playing_label.setText("Now Playing: End of playlist")
 
     @staticmethod
     def format_ms(ms):
