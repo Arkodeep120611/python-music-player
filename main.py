@@ -16,6 +16,8 @@ from PySide6.QtWidgets import (
     QSlider,
     QVBoxLayout,
     QWidget,
+    QDoubleSpinBox,
+    QCheckBox,
 )
 
 
@@ -23,9 +25,9 @@ class MusicPlayerWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Python Music Player")
-        self.resize(1020, 650)
+        self.resize(1040, 680)
 
-        # Step 18: persistent settings
+        # Persistent settings
         self.settings = QSettings("ArkodeepApps", "PythonMusicPlayer")
 
         # Audio engine setup
@@ -42,7 +44,7 @@ class MusicPlayerWindow(QMainWindow):
 
         # Playback modes
         self.shuffle_enabled = False
-        self.repeat_mode = "off"  # one of: off, one, all
+        self.repeat_mode = "off"  # off, all, one
 
         # Central container
         central_widget = QWidget()
@@ -67,10 +69,9 @@ class MusicPlayerWindow(QMainWindow):
         main_layout.addWidget(self.playlist_widget)
         self.playlist_widget.itemDoubleClicked.connect(self.play_item_from_double_click)
 
-        # Allow main window drop events too
         self.setAcceptDrops(True)
 
-        # Seek row container (shown only when supported)
+        # Seek row container
         self.seek_row_widget = QWidget()
         seek_layout = QHBoxLayout()
         seek_layout.setContentsMargins(0, 0, 0, 0)
@@ -85,7 +86,6 @@ class MusicPlayerWindow(QMainWindow):
         seek_layout.addWidget(self.seek_slider)
         seek_layout.addWidget(self.total_time_label)
         main_layout.addWidget(self.seek_row_widget)
-
         self.seek_row_widget.hide()
 
         # Controls row
@@ -113,15 +113,34 @@ class MusicPlayerWindow(QMainWindow):
         mode_layout.addWidget(self.repeat_button)
         main_layout.addLayout(mode_layout)
 
-        # Volume row
-        volume_layout = QHBoxLayout()
+        # Audio controls row (volume + mute + speed)
+        audio_controls_layout = QHBoxLayout()
+
         volume_label = QLabel("Volume")
         self.volume_slider = QSlider(Qt.Horizontal)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(50)
-        volume_layout.addWidget(volume_label)
-        volume_layout.addWidget(self.volume_slider)
-        main_layout.addLayout(volume_layout)
+
+        self.mute_checkbox = QCheckBox("Mute")
+
+        speed_label = QLabel("Speed")
+        self.speed_spinbox = QDoubleSpinBox()
+        self.speed_spinbox.setRange(0.5, 2.0)
+        self.speed_spinbox.setSingleStep(0.1)
+        self.speed_spinbox.setDecimals(1)
+        self.speed_spinbox.setValue(1.0)
+        self.speed_spinbox.setSuffix("x")
+
+        audio_controls_layout.addWidget(volume_label)
+        audio_controls_layout.addWidget(self.volume_slider)
+        audio_controls_layout.addWidget(self.mute_checkbox)
+        audio_controls_layout.addSpacing(16)
+        audio_controls_layout.addWidget(speed_label)
+        audio_controls_layout.addWidget(self.speed_spinbox)
+        main_layout.addLayout(audio_controls_layout)
+
+        # Status bar
+        self.statusBar().showMessage("Ready")
 
         # Build menu
         self._create_menu()
@@ -138,8 +157,10 @@ class MusicPlayerWindow(QMainWindow):
         self.shuffle_button.clicked.connect(self.toggle_shuffle)
         self.repeat_button.clicked.connect(self.cycle_repeat_mode)
 
-        # Volume
+        # Wire audio controls
         self.volume_slider.valueChanged.connect(self.change_volume)
+        self.mute_checkbox.toggled.connect(self.toggle_mute)
+        self.speed_spinbox.valueChanged.connect(self.change_playback_speed)
 
         # Player signals
         self.player.positionChanged.connect(self.on_position_changed)
@@ -154,7 +175,7 @@ class MusicPlayerWindow(QMainWindow):
         # Keyboard shortcuts
         self._setup_shortcuts()
 
-        # Apply persisted settings now that UI exists
+        # Load persisted settings
         self.load_settings()
 
     def _create_menu(self):
@@ -183,52 +204,70 @@ class MusicPlayerWindow(QMainWindow):
         file_menu.addAction(load_playlist_action)
 
     def _setup_shortcuts(self):
-        # Space = play/pause toggle
         self.shortcut_space = QShortcut(QKeySequence(Qt.Key_Space), self)
         self.shortcut_space.activated.connect(self.play_pause_shortcut_action)
 
-        # Ctrl+Right = next
         self.shortcut_next = QShortcut(QKeySequence("Ctrl+Right"), self)
         self.shortcut_next.activated.connect(self.play_next_song)
 
-        # Ctrl+Left = previous
         self.shortcut_prev = QShortcut(QKeySequence("Ctrl+Left"), self)
         self.shortcut_prev.activated.connect(self.play_previous_song)
 
-        # Delete = remove selected
         self.shortcut_delete = QShortcut(QKeySequence(Qt.Key_Delete), self)
         self.shortcut_delete.activated.connect(self.remove_selected_tracks)
 
-    # ---------- Step 18: settings persistence ----------
+        # Step 19: mute shortcut
+        self.shortcut_mute = QShortcut(QKeySequence("Ctrl+M"), self)
+        self.shortcut_mute.activated.connect(
+            lambda: self.mute_checkbox.setChecked(not self.mute_checkbox.isChecked())
+        )
+
+    # ---------- Utility messaging ----------
+
+    def set_now_playing(self, text):
+        self.now_playing_label.setText(text)
+
+    def set_status(self, text, timeout_ms=3000):
+        self.statusBar().showMessage(text, timeout_ms)
+
+    # ---------- Settings persistence ----------
 
     def load_settings(self):
-        """Load persisted settings and apply them to UI/state."""
-        # Window size
         saved_size = self.settings.value("window/size")
         if isinstance(saved_size, QSize):
             self.resize(saved_size)
 
-        # Volume (0-100)
         saved_volume = self.settings.value("audio/volume", 50, type=int)
         saved_volume = max(0, min(100, saved_volume))
         self.volume_slider.setValue(saved_volume)
         self.audio_output.setVolume(saved_volume / 100.0)
 
-        # Shuffle
+        saved_muted = self.settings.value("audio/muted", False, type=bool)
+        self.mute_checkbox.setChecked(saved_muted)
+        self.audio_output.setMuted(saved_muted)
+
+        saved_speed = self.settings.value("audio/speed", 1.0, type=float)
+        if saved_speed < 0.5 or saved_speed > 2.0:
+            saved_speed = 1.0
+        self.speed_spinbox.setValue(saved_speed)
+        self.player.setPlaybackRate(saved_speed)
+
         self.shuffle_enabled = self.settings.value("playback/shuffle", False, type=bool)
         self.shuffle_button.setText("Shuffle: On" if self.shuffle_enabled else "Shuffle: Off")
 
-        # Repeat mode
         saved_repeat = self.settings.value("playback/repeat_mode", "off", type=str)
         if saved_repeat not in {"off", "all", "one"}:
             saved_repeat = "off"
         self.repeat_mode = saved_repeat
         self._refresh_repeat_button_text()
 
+        self.set_status("Settings loaded")
+
     def save_settings(self):
-        """Persist settings."""
         self.settings.setValue("window/size", self.size())
         self.settings.setValue("audio/volume", self.volume_slider.value())
+        self.settings.setValue("audio/muted", self.mute_checkbox.isChecked())
+        self.settings.setValue("audio/speed", float(self.speed_spinbox.value()))
         self.settings.setValue("playback/shuffle", self.shuffle_enabled)
         self.settings.setValue("playback/repeat_mode", self.repeat_mode)
 
@@ -241,11 +280,11 @@ class MusicPlayerWindow(QMainWindow):
             self.repeat_button.setText("Repeat: One")
 
     def closeEvent(self, event):
-        """Save settings on app close."""
         self.save_settings()
+        self.set_status("Settings saved", 1000)
         super().closeEvent(event)
 
-    # ---------- Drag & drop support ----------
+    # ---------- Drag & drop ----------
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -280,10 +319,7 @@ class MusicPlayerWindow(QMainWindow):
         return ext in supported_exts
 
     def add_song_path_to_playlist(self, path):
-        if not path:
-            return False
-
-        if not self.is_supported_audio_file(path):
+        if not path or not self.is_supported_audio_file(path):
             return False
 
         normalized_path = os.path.normpath(path)
@@ -294,7 +330,6 @@ class MusicPlayerWindow(QMainWindow):
         item = QListWidgetItem(filename)
         item.setData(Qt.UserRole, path)
         self.playlist_widget.addItem(item)
-
         self.loaded_file_paths.add(normalized_path)
         return True
 
@@ -312,13 +347,16 @@ class MusicPlayerWindow(QMainWindow):
                 skipped_count += 1
 
         if added_count > 0 and skipped_count == 0:
-            self.now_playing_label.setText(f"Now Playing: Added {added_count} song(s)")
+            self.set_now_playing(f"Now Playing: Added {added_count} song(s)")
+            self.set_status(f"Added {added_count} file(s)")
         elif added_count > 0 and skipped_count > 0:
-            self.now_playing_label.setText(
+            self.set_now_playing(
                 f"Now Playing: Added {added_count}, skipped {skipped_count} unsupported/duplicate file(s)"
             )
+            self.set_status(f"Added {added_count}, skipped {skipped_count}")
         else:
-            self.now_playing_label.setText("Now Playing: No new supported files were added")
+            self.set_now_playing("Now Playing: No new supported files were added")
+            self.set_status("No supported files added")
 
     def open_files(self):
         file_paths, _ = QFileDialog.getOpenFileNames(
@@ -341,24 +379,22 @@ class MusicPlayerWindow(QMainWindow):
         self.current_time_label.setText("00:00")
         self.total_time_label.setText("00:00")
 
-        self.now_playing_label.setText("Now Playing: Playlist cleared")
+        self.set_now_playing("Now Playing: Playlist cleared")
+        self.set_status("Playlist cleared")
 
     def remove_selected_tracks(self):
         selected_items = self.playlist_widget.selectedItems()
         if not selected_items:
-            self.now_playing_label.setText("Now Playing: No tracks selected to remove")
+            self.set_now_playing("Now Playing: No tracks selected to remove")
+            self.set_status("No tracks selected")
             return
 
         removed_count = 0
-
         for item in selected_items:
             song_path = item.data(Qt.UserRole)
             if song_path:
-                normalized_path = os.path.normpath(song_path)
-                self.loaded_file_paths.discard(normalized_path)
-
-            row = self.playlist_widget.row(item)
-            self.playlist_widget.takeItem(row)
+                self.loaded_file_paths.discard(os.path.normpath(song_path))
+            self.playlist_widget.takeItem(self.playlist_widget.row(item))
             removed_count += 1
 
         if self.playlist_widget.count() == 0:
@@ -369,23 +405,23 @@ class MusicPlayerWindow(QMainWindow):
             self.seek_slider.setValue(0)
             self.current_time_label.setText("00:00")
             self.total_time_label.setText("00:00")
-            self.now_playing_label.setText("Now Playing: Playlist is empty after removal")
+            self.set_now_playing("Now Playing: Playlist is empty after removal")
         else:
-            self.now_playing_label.setText(f"Now Playing: Removed {removed_count} track(s)")
+            self.set_now_playing(f"Now Playing: Removed {removed_count} track(s)")
+
+        self.set_status(f"Removed {removed_count} track(s)")
 
     # ---------- Save / Load .m3u ----------
 
     def save_playlist_m3u(self):
         total_items = self.playlist_widget.count()
         if total_items == 0:
-            self.now_playing_label.setText("Now Playing: Playlist is empty, nothing to save")
+            self.set_now_playing("Now Playing: Playlist is empty, nothing to save")
+            self.set_status("Save cancelled: empty playlist")
             return
 
         file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Playlist",
-            "",
-            "M3U Playlist (*.m3u);;All Files (*)",
+            self, "Save Playlist", "", "M3U Playlist (*.m3u);;All Files (*)"
         )
         if not file_path:
             return
@@ -401,19 +437,15 @@ class MusicPlayerWindow(QMainWindow):
                     song_path = item.data(Qt.UserRole)
                     if song_path:
                         f.write(f"{song_path}\n")
-
-            self.now_playing_label.setText(
-                f"Now Playing: Playlist saved to {os.path.basename(file_path)}"
-            )
+            self.set_now_playing(f"Now Playing: Playlist saved to {os.path.basename(file_path)}")
+            self.set_status("Playlist saved")
         except Exception as e:
-            self.now_playing_label.setText(f"Now Playing: Failed to save playlist ({e})")
+            self.set_now_playing(f"Now Playing: Failed to save playlist ({e})")
+            self.set_status("Playlist save failed")
 
     def load_playlist_m3u(self):
         file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Load Playlist",
-            "",
-            "M3U Playlist (*.m3u);;All Files (*)",
+            self, "Load Playlist", "", "M3U Playlist (*.m3u);;All Files (*)"
         )
         if not file_path:
             return
@@ -422,7 +454,8 @@ class MusicPlayerWindow(QMainWindow):
             with open(file_path, "r", encoding="utf-8") as f:
                 lines = [line.strip() for line in f if line.strip()]
         except Exception as e:
-            self.now_playing_label.setText(f"Now Playing: Failed to load playlist ({e})")
+            self.set_now_playing(f"Now Playing: Failed to load playlist ({e})")
+            self.set_status("Playlist load failed")
             return
 
         self.clear_playlist()
@@ -446,35 +479,34 @@ class MusicPlayerWindow(QMainWindow):
                 missing_count += 1
 
         if added_count > 0 and missing_count == 0:
-            self.now_playing_label.setText(f"Now Playing: Loaded {added_count} song(s) from playlist")
+            self.set_now_playing(f"Now Playing: Loaded {added_count} song(s) from playlist")
         elif added_count > 0 and missing_count > 0:
-            self.now_playing_label.setText(
-                f"Now Playing: Loaded {added_count}, missing {missing_count} file(s)"
-            )
+            self.set_now_playing(f"Now Playing: Loaded {added_count}, missing {missing_count} file(s)")
         else:
-            self.now_playing_label.setText("Now Playing: No valid songs found in playlist")
+            self.set_now_playing("Now Playing: No valid songs found in playlist")
+
+        self.set_status(f"Playlist loaded ({added_count} added, {missing_count} missing)")
 
     # ---------- Playback controls ----------
 
     def play_item_from_double_click(self, item):
-        row = self.playlist_widget.row(item)
-        self.playlist_widget.setCurrentRow(row)
+        self.playlist_widget.setCurrentRow(self.playlist_widget.row(item))
         self.play_selected_song()
 
     def play_selected_song(self):
         current_item = self.playlist_widget.currentItem()
         if current_item is None:
-            self.now_playing_label.setText("Now Playing: Please select a song first")
+            self.set_now_playing("Now Playing: Please select a song first")
+            self.set_status("No song selected")
             return
 
         song_name = current_item.text()
         song_path = current_item.data(Qt.UserRole)
-
         if not song_path:
-            self.now_playing_label.setText("Now Playing: Invalid file path")
+            self.set_now_playing("Now Playing: Invalid file path")
+            self.set_status("Invalid file path")
             return
 
-        # Reset seek UI before loading media
         self.seek_supported_for_current_track = False
         self.seek_row_widget.hide()
         self.seek_slider.setRange(0, 0)
@@ -484,18 +516,15 @@ class MusicPlayerWindow(QMainWindow):
 
         self.player.setSource(QUrl.fromLocalFile(song_path))
         self.player.play()
-        self.now_playing_label.setText(f"Now Playing: {song_name}")
+        self.set_now_playing(f"Now Playing: {song_name}")
+        self.set_status(f"Playing: {song_name}")
 
     def play_pause_shortcut_action(self):
-        """Space shortcut: if playing -> pause, else -> play/resume."""
         state = self.player.playbackState()
-        if state == QMediaPlayer.PlayingState:
-            self.toggle_pause_resume()
-        elif state == QMediaPlayer.PausedState:
+        if state in (QMediaPlayer.PlayingState, QMediaPlayer.PausedState):
             self.toggle_pause_resume()
         else:
-            current_item = self.playlist_widget.currentItem()
-            if current_item is None and self.playlist_widget.count() > 0:
+            if self.playlist_widget.currentItem() is None and self.playlist_widget.count() > 0:
                 self.playlist_widget.setCurrentRow(0)
             self.play_selected_song()
 
@@ -505,28 +534,30 @@ class MusicPlayerWindow(QMainWindow):
         if state == QMediaPlayer.PlayingState:
             self.player.pause()
             current_item = self.playlist_widget.currentItem()
-            self.now_playing_label.setText(
-                "Paused" if current_item is None else f"Paused: {current_item.text()}"
-            )
+            text = "Paused" if current_item is None else f"Paused: {current_item.text()}"
+            self.set_now_playing(text)
+            self.set_status("Playback paused")
 
         elif state == QMediaPlayer.PausedState:
             self.player.play()
             current_item = self.playlist_widget.currentItem()
-            self.now_playing_label.setText(
-                "Now Playing" if current_item is None else f"Now Playing: {current_item.text()}"
-            )
+            text = "Now Playing" if current_item is None else f"Now Playing: {current_item.text()}"
+            self.set_now_playing(text)
+            self.set_status("Playback resumed")
 
         else:
             self.play_selected_song()
 
     def stop_song(self):
         self.player.stop()
-        self.now_playing_label.setText("Now Playing: Stopped")
+        self.set_now_playing("Now Playing: Stopped")
+        self.set_status("Playback stopped")
 
     def play_next_song(self):
         total_items = self.playlist_widget.count()
         if total_items == 0:
-            self.now_playing_label.setText("Now Playing: Playlist is empty")
+            self.set_now_playing("Now Playing: Playlist is empty")
+            self.set_status("Next unavailable: empty playlist")
             return
 
         current_row = self.playlist_widget.currentRow()
@@ -536,10 +567,7 @@ class MusicPlayerWindow(QMainWindow):
             if next_row is None:
                 next_row = 0
         else:
-            if current_row == -1:
-                next_row = 0
-            else:
-                next_row = min(current_row + 1, total_items - 1)
+            next_row = 0 if current_row == -1 else min(current_row + 1, total_items - 1)
 
         self.playlist_widget.setCurrentRow(next_row)
         self.play_selected_song()
@@ -547,7 +575,8 @@ class MusicPlayerWindow(QMainWindow):
     def play_previous_song(self):
         total_items = self.playlist_widget.count()
         if total_items == 0:
-            self.now_playing_label.setText("Now Playing: Playlist is empty")
+            self.set_now_playing("Now Playing: Playlist is empty")
+            self.set_status("Previous unavailable: empty playlist")
             return
 
         current_row = self.playlist_widget.currentRow()
@@ -557,25 +586,34 @@ class MusicPlayerWindow(QMainWindow):
             if prev_row is None:
                 prev_row = 0
         else:
-            if current_row == -1:
-                prev_row = 0
-            else:
-                prev_row = max(current_row - 1, 0)
+            prev_row = 0 if current_row == -1 else max(current_row - 1, 0)
 
         self.playlist_widget.setCurrentRow(prev_row)
         self.play_selected_song()
 
     def change_volume(self, value):
         self.audio_output.setVolume(value / 100.0)
+        if value == 0 and not self.mute_checkbox.isChecked():
+            self.set_status("Volume: 0%")
+        else:
+            self.set_status(f"Volume: {value}%")
+
+    def toggle_mute(self, muted):
+        self.audio_output.setMuted(muted)
+        self.set_status("Muted" if muted else "Unmuted")
+
+    def change_playback_speed(self, speed):
+        self.player.setPlaybackRate(float(speed))
+        self.set_status(f"Speed: {speed:.1f}x")
 
     # ---------- Shuffle + Repeat ----------
 
     def toggle_shuffle(self):
         self.shuffle_enabled = not self.shuffle_enabled
         self.shuffle_button.setText("Shuffle: On" if self.shuffle_enabled else "Shuffle: Off")
+        self.set_status("Shuffle enabled" if self.shuffle_enabled else "Shuffle disabled")
 
     def cycle_repeat_mode(self):
-        # Cycle: off -> all -> one -> off
         if self.repeat_mode == "off":
             self.repeat_mode = "all"
         elif self.repeat_mode == "all":
@@ -584,18 +622,16 @@ class MusicPlayerWindow(QMainWindow):
             self.repeat_mode = "off"
 
         self._refresh_repeat_button_text()
+        self.set_status(f"Repeat mode: {self.repeat_mode}")
 
     def get_random_row(self, exclude_row):
         total_items = self.playlist_widget.count()
         if total_items <= 1:
             return None
-
         choices = [i for i in range(total_items) if i != exclude_row]
-        if not choices:
-            return None
-        return random.choice(choices)
+        return random.choice(choices) if choices else None
 
-    # ---------- Seek logic (safe fallback) ----------
+    # ---------- Seek logic ----------
 
     def on_duration_changed(self, duration_ms):
         if duration_ms and duration_ms > 0:
@@ -614,7 +650,6 @@ class MusicPlayerWindow(QMainWindow):
     def on_position_changed(self, position_ms):
         if not self.seek_supported_for_current_track:
             return
-
         if not self.is_user_seeking:
             self.seek_slider.setValue(position_ms)
         self.current_time_label.setText(self.format_ms(position_ms))
@@ -631,12 +666,10 @@ class MusicPlayerWindow(QMainWindow):
         if not self.seek_supported_for_current_track:
             self.is_user_seeking = False
             return
-
-        target_ms = self.seek_slider.value()
-        self.player.setPosition(target_ms)
+        self.player.setPosition(self.seek_slider.value())
         self.is_user_seeking = False
 
-    # ---------- End-of-track handling with repeat/shuffle ----------
+    # ---------- End-of-track handling ----------
 
     def on_media_status_changed(self, status):
         if status != QMediaPlayer.EndOfMedia:
@@ -644,45 +677,38 @@ class MusicPlayerWindow(QMainWindow):
 
         total_items = self.playlist_widget.count()
         if total_items == 0:
-            self.now_playing_label.setText("Now Playing: Playlist is empty")
+            self.set_now_playing("Now Playing: Playlist is empty")
             return
 
         current_row = self.playlist_widget.currentRow()
 
-        # Repeat One: restart same track WITHOUT reloading source
         if self.repeat_mode == "one":
             if current_row < 0:
                 current_row = 0
                 self.playlist_widget.setCurrentRow(current_row)
-
             self.player.setPosition(0)
             self.player.play()
-
             current_item = self.playlist_widget.currentItem()
-            if current_item:
-                self.now_playing_label.setText(f"Now Playing: {current_item.text()}")
-            else:
-                self.now_playing_label.setText("Now Playing")
+            self.set_now_playing(
+                f"Now Playing: {current_item.text()}" if current_item else "Now Playing"
+            )
+            self.set_status("Repeat one: restarted track")
             return
 
-        # Shuffle behavior
         if self.shuffle_enabled:
             next_row = self.get_random_row(exclude_row=current_row)
             if next_row is None:
-                # only one song
                 if self.repeat_mode == "all":
                     self.playlist_widget.setCurrentRow(0)
                     self.play_selected_song()
                 else:
                     self.stop_song()
-                    self.now_playing_label.setText("Now Playing: End of playlist")
+                    self.set_now_playing("Now Playing: End of playlist")
                 return
-
             self.playlist_widget.setCurrentRow(next_row)
             self.play_selected_song()
             return
 
-        # Non-shuffle sequential behavior
         if current_row < 0:
             self.stop_song()
             return
@@ -692,13 +718,13 @@ class MusicPlayerWindow(QMainWindow):
             self.playlist_widget.setCurrentRow(next_row)
             self.play_selected_song()
         else:
-            # End reached
             if self.repeat_mode == "all":
                 self.playlist_widget.setCurrentRow(0)
                 self.play_selected_song()
             else:
                 self.stop_song()
-                self.now_playing_label.setText("Now Playing: End of playlist")
+                self.set_now_playing("Now Playing: End of playlist")
+                self.set_status("Reached end of playlist")
 
     @staticmethod
     def format_ms(ms):
