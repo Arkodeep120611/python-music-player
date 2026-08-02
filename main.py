@@ -60,6 +60,8 @@ class MusicPlayerWindow(QMainWindow):
 
         # Wire button actions
         self.play_button.clicked.connect(self.play_selected_song)
+        self.pause_button.clicked.connect(self.pause_song)
+        self.stop_button.clicked.connect(self.stop_song)
 
     def _create_menu(self):
         """Create the menu bar and wire menu actions."""
@@ -95,6 +97,21 @@ class MusicPlayerWindow(QMainWindow):
 
         song_name = current_item.text()
         self.now_playing_label.setText(f"Now Playing: {song_name}")
+
+    def pause_song(self):
+        """Update label to show paused state for selected song."""
+        current_item = self.playlist_widget.currentItem()
+
+        if current_item is None:
+            self.now_playing_label.setText("Paused: No song selected")
+            return
+
+        song_name = current_item.text()
+        self.now_playing_label.setText(f"Paused: {song_name}")
+
+    def stop_song(self):
+        """Update label to show stopped state."""
+        self.now_playing_label.setText("Now Playing: Stopped")
 
 
 def main():
