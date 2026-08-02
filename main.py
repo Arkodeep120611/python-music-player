@@ -67,7 +67,7 @@ class MusicPlayerWindow(QMainWindow):
 
         # Wire button actions
         self.play_button.clicked.connect(self.play_selected_song)
-        self.pause_button.clicked.connect(self.pause_song)  # UI-only for this step
+        self.pause_button.clicked.connect(self.toggle_pause_resume)
         self.stop_button.clicked.connect(self.stop_song)
         self.next_button.clicked.connect(self.play_next_song)
         self.prev_button.clicked.connect(self.play_previous_song)
@@ -94,8 +94,6 @@ class MusicPlayerWindow(QMainWindow):
 
         for path in file_paths:
             filename = os.path.basename(path)
-
-            # Create list item with visible text + hidden full path
             item = QListWidgetItem(filename)
             item.setData(Qt.UserRole, path)
             self.playlist_widget.addItem(item)
@@ -119,16 +117,35 @@ class MusicPlayerWindow(QMainWindow):
         self.player.play()
         self.now_playing_label.setText(f"Now Playing: {song_name}")
 
-    def pause_song(self):
-        """UI-only paused label for now (real pause in next step)."""
-        current_item = self.playlist_widget.currentItem()
+    def toggle_pause_resume(self):
+        """
+        Pause if currently playing.
+        Resume if currently paused.
+        If stopped, start selected song.
+        """
+        state = self.player.playbackState()
 
-        if current_item is None:
-            self.now_playing_label.setText("Paused: No song selected")
-            return
+        if state == QMediaPlayer.PlayingState:
+            self.player.pause()
 
-        song_name = current_item.text()
-        self.now_playing_label.setText(f"Paused: {song_name}")
+            current_item = self.playlist_widget.currentItem()
+            if current_item is None:
+                self.now_playing_label.setText("Paused")
+            else:
+                self.now_playing_label.setText(f"Paused: {current_item.text()}")
+
+        elif state == QMediaPlayer.PausedState:
+            self.player.play()
+
+            current_item = self.playlist_widget.currentItem()
+            if current_item is None:
+                self.now_playing_label.setText("Now Playing")
+            else:
+                self.now_playing_label.setText(f"Now Playing: {current_item.text()}")
+
+        else:
+            # Stopped state: try starting selected song
+            self.play_selected_song()
 
     def stop_song(self):
         """Stop real playback and update label."""
