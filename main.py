@@ -58,6 +58,9 @@ class MusicPlayerWindow(QMainWindow):
         # Build menu
         self._create_menu()
 
+        # Wire button actions
+        self.play_button.clicked.connect(self.play_selected_song)
+
     def _create_menu(self):
         """Create the menu bar and wire menu actions."""
         file_menu = self.menuBar().addMenu("File")
@@ -81,6 +84,17 @@ class MusicPlayerWindow(QMainWindow):
         for path in file_paths:
             filename = os.path.basename(path)
             self.playlist_widget.addItem(filename)
+
+    def play_selected_song(self):
+        """Update label based on currently selected playlist item."""
+        current_item = self.playlist_widget.currentItem()
+
+        if current_item is None:
+            self.now_playing_label.setText("Now Playing: Please select a song first")
+            return
+
+        song_name = current_item.text()
+        self.now_playing_label.setText(f"Now Playing: {song_name}")
 
 
 def main():
