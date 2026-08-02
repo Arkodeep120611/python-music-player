@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QPushButton,
+    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -27,6 +28,9 @@ class MusicPlayerWindow(QMainWindow):
         self.audio_output = QAudioOutput()
         self.player = QMediaPlayer()
         self.player.setAudioOutput(self.audio_output)
+
+        # Set default volume (0.0 to 1.0 for QAudioOutput)
+        self.audio_output.setVolume(0.5)
 
         # Central container
         central_widget = QWidget()
@@ -45,7 +49,7 @@ class MusicPlayerWindow(QMainWindow):
         self.playlist_widget = QListWidget()
         main_layout.addWidget(self.playlist_widget)
 
-        # Control bar (horizontal)
+        # Controls row
         controls_layout = QHBoxLayout()
 
         self.prev_button = QPushButton("⏮ Previous")
@@ -62,6 +66,17 @@ class MusicPlayerWindow(QMainWindow):
 
         main_layout.addLayout(controls_layout)
 
+        # Volume row
+        volume_layout = QHBoxLayout()
+        volume_label = QLabel("Volume")
+        self.volume_slider = QSlider(Qt.Horizontal)
+        self.volume_slider.setRange(0, 100)
+        self.volume_slider.setValue(50)  # match 0.5 default volume
+
+        volume_layout.addWidget(volume_label)
+        volume_layout.addWidget(self.volume_slider)
+        main_layout.addLayout(volume_layout)
+
         # Build menu
         self._create_menu()
 
@@ -72,8 +87,10 @@ class MusicPlayerWindow(QMainWindow):
         self.next_button.clicked.connect(self.play_next_song)
         self.prev_button.clicked.connect(self.play_previous_song)
 
+        # Wire volume slider
+        self.volume_slider.valueChanged.connect(self.change_volume)
+
     def _create_menu(self):
-        """Create the menu bar and wire menu actions."""
         file_menu = self.menuBar().addMenu("File")
 
         open_action = QAction("Open Music Files...", self)
@@ -81,7 +98,6 @@ class MusicPlayerWindow(QMainWindow):
         file_menu.addAction(open_action)
 
     def open_files(self):
-        """Open file dialog, select audio files, and append to playlist."""
         file_paths, _ = QFileDialog.getOpenFileNames(
             self,
             "Select Music Files",
@@ -99,7 +115,6 @@ class MusicPlayerWindow(QMainWindow):
             self.playlist_widget.addItem(item)
 
     def play_selected_song(self):
-        """Load selected song into media player and play it."""
         current_item = self.playlist_widget.currentItem()
 
         if current_item is None:
@@ -118,16 +133,10 @@ class MusicPlayerWindow(QMainWindow):
         self.now_playing_label.setText(f"Now Playing: {song_name}")
 
     def toggle_pause_resume(self):
-        """
-        Pause if currently playing.
-        Resume if currently paused.
-        If stopped, start selected song.
-        """
         state = self.player.playbackState()
 
         if state == QMediaPlayer.PlayingState:
             self.player.pause()
-
             current_item = self.playlist_widget.currentItem()
             if current_item is None:
                 self.now_playing_label.setText("Paused")
@@ -136,7 +145,6 @@ class MusicPlayerWindow(QMainWindow):
 
         elif state == QMediaPlayer.PausedState:
             self.player.play()
-
             current_item = self.playlist_widget.currentItem()
             if current_item is None:
                 self.now_playing_label.setText("Now Playing")
@@ -144,16 +152,13 @@ class MusicPlayerWindow(QMainWindow):
                 self.now_playing_label.setText(f"Now Playing: {current_item.text()}")
 
         else:
-            # Stopped state: try starting selected song
             self.play_selected_song()
 
     def stop_song(self):
-        """Stop real playback and update label."""
         self.player.stop()
         self.now_playing_label.setText("Now Playing: Stopped")
 
     def play_next_song(self):
-        """Move selection to next playlist item and play it."""
         total_items = self.playlist_widget.count()
         if total_items == 0:
             self.now_playing_label.setText("Now Playing: Playlist is empty")
@@ -170,7 +175,6 @@ class MusicPlayerWindow(QMainWindow):
         self.play_selected_song()
 
     def play_previous_song(self):
-        """Move selection to previous playlist item and play it."""
         total_items = self.playlist_widget.count()
         if total_items == 0:
             self.now_playing_label.setText("Now Playing: Playlist is empty")
@@ -185,6 +189,10 @@ class MusicPlayerWindow(QMainWindow):
             self.playlist_widget.setCurrentRow(previous_row)
 
         self.play_selected_song()
+
+    def change_volume(self, value):
+        """Slider value 0-100 -> QAudioOutput volume 0.0-1.0"""
+        self.audio_output.setVolume(value / 100.0)
 
 
 def main():
