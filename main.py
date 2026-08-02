@@ -1,13 +1,15 @@
 import os
 import sys
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QAction
+from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QPushButton,
     QVBoxLayout,
@@ -20,6 +22,11 @@ class MusicPlayerWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Python Music Player")
         self.resize(900, 600)
+
+        # Audio engine setup
+        self.audio_output = QAudioOutput()
+        self.player = QMediaPlayer()
+        self.player.setAudioOutput(self.audio_output)
 
         # Central container
         central_widget = QWidget()
@@ -60,7 +67,7 @@ class MusicPlayerWindow(QMainWindow):
 
         # Wire button actions
         self.play_button.clicked.connect(self.play_selected_song)
-        self.pause_button.clicked.connect(self.pause_song)
+        self.pause_button.clicked.connect(self.pause_song)  # UI-only for this step
         self.stop_button.clicked.connect(self.stop_song)
         self.next_button.clicked.connect(self.play_next_song)
         self.prev_button.clicked.connect(self.play_previous_song)
@@ -87,10 +94,14 @@ class MusicPlayerWindow(QMainWindow):
 
         for path in file_paths:
             filename = os.path.basename(path)
-            self.playlist_widget.addItem(filename)
+
+            # Create list item with visible text + hidden full path
+            item = QListWidgetItem(filename)
+            item.setData(Qt.UserRole, path)
+            self.playlist_widget.addItem(item)
 
     def play_selected_song(self):
-        """Update label based on currently selected playlist item."""
+        """Load selected song into media player and play it."""
         current_item = self.playlist_widget.currentItem()
 
         if current_item is None:
@@ -98,10 +109,18 @@ class MusicPlayerWindow(QMainWindow):
             return
 
         song_name = current_item.text()
+        song_path = current_item.data(Qt.UserRole)
+
+        if not song_path:
+            self.now_playing_label.setText("Now Playing: Invalid file path")
+            return
+
+        self.player.setSource(QUrl.fromLocalFile(song_path))
+        self.player.play()
         self.now_playing_label.setText(f"Now Playing: {song_name}")
 
     def pause_song(self):
-        """Update label to show paused state for selected song."""
+        """UI-only paused label for now (real pause in next step)."""
         current_item = self.playlist_widget.currentItem()
 
         if current_item is None:
@@ -112,11 +131,12 @@ class MusicPlayerWindow(QMainWindow):
         self.now_playing_label.setText(f"Paused: {song_name}")
 
     def stop_song(self):
-        """Update label to show stopped state."""
+        """Stop real playback and update label."""
+        self.player.stop()
         self.now_playing_label.setText("Now Playing: Stopped")
 
     def play_next_song(self):
-        """Move selection to next playlist item and update now-playing label."""
+        """Move selection to next playlist item and play it."""
         total_items = self.playlist_widget.count()
         if total_items == 0:
             self.now_playing_label.setText("Now Playing: Playlist is empty")
@@ -125,7 +145,6 @@ class MusicPlayerWindow(QMainWindow):
         current_row = self.playlist_widget.currentRow()
 
         if current_row == -1:
-            # Nothing selected yet -> select first item
             self.playlist_widget.setCurrentRow(0)
         else:
             next_row = min(current_row + 1, total_items - 1)
@@ -134,7 +153,7 @@ class MusicPlayerWindow(QMainWindow):
         self.play_selected_song()
 
     def play_previous_song(self):
-        """Move selection to previous playlist item and update now-playing label."""
+        """Move selection to previous playlist item and play it."""
         total_items = self.playlist_widget.count()
         if total_items == 0:
             self.now_playing_label.setText("Now Playing: Playlist is empty")
@@ -143,7 +162,6 @@ class MusicPlayerWindow(QMainWindow):
         current_row = self.playlist_widget.currentRow()
 
         if current_row == -1:
-            # Nothing selected yet -> select first item
             self.playlist_widget.setCurrentRow(0)
         else:
             previous_row = max(current_row - 1, 0)
