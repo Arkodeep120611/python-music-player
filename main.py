@@ -2,7 +2,7 @@ import os
 import sys
 import random
 from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QShortcut, QKeySequence
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
@@ -23,7 +23,7 @@ class MusicPlayerWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Python Music Player")
-        self.resize(980, 620)
+        self.resize(1020, 650)
 
         # Audio engine setup
         self.audio_output = QAudioOutput()
@@ -57,8 +57,16 @@ class MusicPlayerWindow(QMainWindow):
 
         # Playlist area
         self.playlist_widget = QListWidget()
+        self.playlist_widget.setSelectionMode(QListWidget.ExtendedSelection)
+        self.playlist_widget.setAcceptDrops(True)
+        self.playlist_widget.setDragDropMode(QListWidget.DropOnly)
+        self.playlist_widget.viewport().setAcceptDrops(True)
+        self.playlist_widget.setDefaultDropAction(Qt.CopyAction)
         main_layout.addWidget(self.playlist_widget)
         self.playlist_widget.itemDoubleClicked.connect(self.play_item_from_double_click)
+
+        # Allow main window drop events too
+        self.setAcceptDrops(True)
 
         # Seek row container (shown only when supported)
         self.seek_row_widget = QWidget()
@@ -85,12 +93,14 @@ class MusicPlayerWindow(QMainWindow):
         self.pause_button = QPushButton("⏸ Pause")
         self.stop_button = QPushButton("⏹ Stop")
         self.next_button = QPushButton("Next ⏭")
+        self.remove_button = QPushButton("🗑 Remove Selected")
 
         controls_layout.addWidget(self.prev_button)
         controls_layout.addWidget(self.play_button)
         controls_layout.addWidget(self.pause_button)
         controls_layout.addWidget(self.stop_button)
         controls_layout.addWidget(self.next_button)
+        controls_layout.addWidget(self.remove_button)
         main_layout.addLayout(controls_layout)
 
         # Mode controls row
@@ -120,6 +130,7 @@ class MusicPlayerWindow(QMainWindow):
         self.stop_button.clicked.connect(self.stop_song)
         self.next_button.clicked.connect(self.play_next_song)
         self.prev_button.clicked.connect(self.play_previous_song)
+        self.remove_button.clicked.connect(self.remove_selected_tracks)
 
         # Wire mode controls
         self.shuffle_button.clicked.connect(self.toggle_shuffle)
@@ -138,6 +149,9 @@ class MusicPlayerWindow(QMainWindow):
         self.seek_slider.sliderReleased.connect(self.on_seek_released)
         self.seek_slider.sliderMoved.connect(self.on_seek_moved)
 
+        # Step 17: keyboard shortcuts
+        self._setup_shortcuts()
+
     def _create_menu(self):
         file_menu = self.menuBar().addMenu("File")
 
@@ -149,6 +163,10 @@ class MusicPlayerWindow(QMainWindow):
         clear_action.triggered.connect(self.clear_playlist)
         file_menu.addAction(clear_action)
 
+        remove_selected_action = QAction("Remove Selected", self)
+        remove_selected_action.triggered.connect(self.remove_selected_tracks)
+        file_menu.addAction(remove_selected_action)
+
         file_menu.addSeparator()
 
         save_playlist_action = QAction("Save Playlist (.m3u)...", self)
@@ -159,10 +177,62 @@ class MusicPlayerWindow(QMainWindow):
         load_playlist_action.triggered.connect(self.load_playlist_m3u)
         file_menu.addAction(load_playlist_action)
 
+    def _setup_shortcuts(self):
+        # Space = play/pause toggle
+        self.shortcut_space = QShortcut(QKeySequence(Qt.Key_Space), self)
+        self.shortcut_space.activated.connect(self.play_pause_shortcut_action)
+
+        # Ctrl+Right = next
+        self.shortcut_next = QShortcut(QKeySequence("Ctrl+Right"), self)
+        self.shortcut_next.activated.connect(self.play_next_song)
+
+        # Ctrl+Left = previous
+        self.shortcut_prev = QShortcut(QKeySequence("Ctrl+Left"), self)
+        self.shortcut_prev.activated.connect(self.play_previous_song)
+
+        # Delete = remove selected
+        self.shortcut_delete = QShortcut(QKeySequence(Qt.Key_Delete), self)
+        self.shortcut_delete.activated.connect(self.remove_selected_tracks)
+
+    # ---------- Drag & drop support ----------
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        if not event.mimeData().hasUrls():
+            event.ignore()
+            return
+
+        file_paths = []
+        for url in event.mimeData().urls():
+            if url.isLocalFile():
+                file_paths.append(url.toLocalFile())
+
+        self.add_files_from_paths(file_paths)
+        event.acceptProposedAction()
+
     # ---------- Playlist helpers ----------
+
+    def is_supported_audio_file(self, path):
+        supported_exts = {".mp3", ".wav", ".flac", ".ogg", ".m4a"}
+        ext = os.path.splitext(path)[1].lower()
+        return ext in supported_exts
 
     def add_song_path_to_playlist(self, path):
         if not path:
+            return False
+
+        if not self.is_supported_audio_file(path):
             return False
 
         normalized_path = os.path.normpath(path)
@@ -177,13 +247,7 @@ class MusicPlayerWindow(QMainWindow):
         self.loaded_file_paths.add(normalized_path)
         return True
 
-    def open_files(self):
-        file_paths, _ = QFileDialog.getOpenFileNames(
-            self,
-            "Select Music Files",
-            "",
-            "Audio Files (*.mp3 *.wav *.flac *.ogg *.m4a);;All Files (*)",
-        )
+    def add_files_from_paths(self, file_paths):
         if not file_paths:
             return
 
@@ -200,10 +264,19 @@ class MusicPlayerWindow(QMainWindow):
             self.now_playing_label.setText(f"Now Playing: Added {added_count} song(s)")
         elif added_count > 0 and skipped_count > 0:
             self.now_playing_label.setText(
-                f"Now Playing: Added {added_count}, skipped {skipped_count} duplicate(s)"
+                f"Now Playing: Added {added_count}, skipped {skipped_count} unsupported/duplicate file(s)"
             )
         else:
-            self.now_playing_label.setText("Now Playing: All selected files were duplicates")
+            self.now_playing_label.setText("Now Playing: No new supported files were added")
+
+    def open_files(self):
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Music Files",
+            "",
+            "Audio Files (*.mp3 *.wav *.flac *.ogg *.m4a);;All Files (*)",
+        )
+        self.add_files_from_paths(file_paths)
 
     def clear_playlist(self):
         self.player.stop()
@@ -218,6 +291,36 @@ class MusicPlayerWindow(QMainWindow):
         self.total_time_label.setText("00:00")
 
         self.now_playing_label.setText("Now Playing: Playlist cleared")
+
+    def remove_selected_tracks(self):
+        selected_items = self.playlist_widget.selectedItems()
+        if not selected_items:
+            self.now_playing_label.setText("Now Playing: No tracks selected to remove")
+            return
+
+        removed_count = 0
+
+        for item in selected_items:
+            song_path = item.data(Qt.UserRole)
+            if song_path:
+                normalized_path = os.path.normpath(song_path)
+                self.loaded_file_paths.discard(normalized_path)
+
+            row = self.playlist_widget.row(item)
+            self.playlist_widget.takeItem(row)
+            removed_count += 1
+
+        if self.playlist_widget.count() == 0:
+            self.player.stop()
+            self.seek_supported_for_current_track = False
+            self.seek_row_widget.hide()
+            self.seek_slider.setRange(0, 0)
+            self.seek_slider.setValue(0)
+            self.current_time_label.setText("00:00")
+            self.total_time_label.setText("00:00")
+            self.now_playing_label.setText("Now Playing: Playlist is empty after removal")
+        else:
+            self.now_playing_label.setText(f"Now Playing: Removed {removed_count} track(s)")
 
     # ---------- Save / Load .m3u ----------
 
@@ -331,6 +434,20 @@ class MusicPlayerWindow(QMainWindow):
         self.player.setSource(QUrl.fromLocalFile(song_path))
         self.player.play()
         self.now_playing_label.setText(f"Now Playing: {song_name}")
+
+    def play_pause_shortcut_action(self):
+        """Space shortcut: if playing -> pause, else -> play/resume."""
+        state = self.player.playbackState()
+        if state == QMediaPlayer.PlayingState:
+            self.toggle_pause_resume()
+        elif state == QMediaPlayer.PausedState:
+            self.toggle_pause_resume()
+        else:
+            # stopped
+            current_item = self.playlist_widget.currentItem()
+            if current_item is None and self.playlist_widget.count() > 0:
+                self.playlist_widget.setCurrentRow(0)
+            self.play_selected_song()
 
     def toggle_pause_resume(self):
         state = self.player.playbackState()
