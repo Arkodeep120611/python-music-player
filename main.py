@@ -1,7 +1,7 @@
 import os
 import sys
 import random
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, QSettings, QSize
 from PySide6.QtGui import QAction, QShortcut, QKeySequence
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
@@ -25,11 +25,13 @@ class MusicPlayerWindow(QMainWindow):
         self.setWindowTitle("Python Music Player")
         self.resize(1020, 650)
 
+        # Step 18: persistent settings
+        self.settings = QSettings("ArkodeepApps", "PythonMusicPlayer")
+
         # Audio engine setup
         self.audio_output = QAudioOutput()
         self.player = QMediaPlayer()
         self.player.setAudioOutput(self.audio_output)
-        self.audio_output.setVolume(0.5)
 
         # Seek handling flags
         self.is_user_seeking = False
@@ -149,8 +151,11 @@ class MusicPlayerWindow(QMainWindow):
         self.seek_slider.sliderReleased.connect(self.on_seek_released)
         self.seek_slider.sliderMoved.connect(self.on_seek_moved)
 
-        # Step 17: keyboard shortcuts
+        # Keyboard shortcuts
         self._setup_shortcuts()
+
+        # Apply persisted settings now that UI exists
+        self.load_settings()
 
     def _create_menu(self):
         file_menu = self.menuBar().addMenu("File")
@@ -193,6 +198,52 @@ class MusicPlayerWindow(QMainWindow):
         # Delete = remove selected
         self.shortcut_delete = QShortcut(QKeySequence(Qt.Key_Delete), self)
         self.shortcut_delete.activated.connect(self.remove_selected_tracks)
+
+    # ---------- Step 18: settings persistence ----------
+
+    def load_settings(self):
+        """Load persisted settings and apply them to UI/state."""
+        # Window size
+        saved_size = self.settings.value("window/size")
+        if isinstance(saved_size, QSize):
+            self.resize(saved_size)
+
+        # Volume (0-100)
+        saved_volume = self.settings.value("audio/volume", 50, type=int)
+        saved_volume = max(0, min(100, saved_volume))
+        self.volume_slider.setValue(saved_volume)
+        self.audio_output.setVolume(saved_volume / 100.0)
+
+        # Shuffle
+        self.shuffle_enabled = self.settings.value("playback/shuffle", False, type=bool)
+        self.shuffle_button.setText("Shuffle: On" if self.shuffle_enabled else "Shuffle: Off")
+
+        # Repeat mode
+        saved_repeat = self.settings.value("playback/repeat_mode", "off", type=str)
+        if saved_repeat not in {"off", "all", "one"}:
+            saved_repeat = "off"
+        self.repeat_mode = saved_repeat
+        self._refresh_repeat_button_text()
+
+    def save_settings(self):
+        """Persist settings."""
+        self.settings.setValue("window/size", self.size())
+        self.settings.setValue("audio/volume", self.volume_slider.value())
+        self.settings.setValue("playback/shuffle", self.shuffle_enabled)
+        self.settings.setValue("playback/repeat_mode", self.repeat_mode)
+
+    def _refresh_repeat_button_text(self):
+        if self.repeat_mode == "off":
+            self.repeat_button.setText("Repeat: Off")
+        elif self.repeat_mode == "all":
+            self.repeat_button.setText("Repeat: All")
+        else:
+            self.repeat_button.setText("Repeat: One")
+
+    def closeEvent(self, event):
+        """Save settings on app close."""
+        self.save_settings()
+        super().closeEvent(event)
 
     # ---------- Drag & drop support ----------
 
@@ -443,7 +494,6 @@ class MusicPlayerWindow(QMainWindow):
         elif state == QMediaPlayer.PausedState:
             self.toggle_pause_resume()
         else:
-            # stopped
             current_item = self.playlist_widget.currentItem()
             if current_item is None and self.playlist_widget.count() > 0:
                 self.playlist_widget.setCurrentRow(0)
@@ -528,13 +578,12 @@ class MusicPlayerWindow(QMainWindow):
         # Cycle: off -> all -> one -> off
         if self.repeat_mode == "off":
             self.repeat_mode = "all"
-            self.repeat_button.setText("Repeat: All")
         elif self.repeat_mode == "all":
             self.repeat_mode = "one"
-            self.repeat_button.setText("Repeat: One")
         else:
             self.repeat_mode = "off"
-            self.repeat_button.setText("Repeat: Off")
+
+        self._refresh_repeat_button_text()
 
     def get_random_row(self, exclude_row):
         total_items = self.playlist_widget.count()
