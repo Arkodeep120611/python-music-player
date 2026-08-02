@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QLabel,
     QHBoxLayout,
+    QListWidget,
     QMainWindow,
     QPushButton,
     QVBoxLayout,
@@ -26,24 +27,28 @@ class MusicPlayerWindow(QMainWindow):
         central_widget.setLayout(main_layout)
 
         # Header
-        now_playing_label = QLabel("Now Playing: Nothing loaded")
-        now_playing_label.setAlignment(Qt.AlignCenter)
-        main_layout.addWidget(now_playing_label)
+        self.now_playing_label = QLabel("Now Playing: Nothing loaded")
+        self.now_playing_label.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(self.now_playing_label)
+
+        # Playlist area
+        self.playlist_widget = QListWidget()
+        main_layout.addWidget(self.playlist_widget)
 
         # Control bar (horizontal)
         controls_layout = QHBoxLayout()
 
-        prev_button = QPushButton("⏮ Previous")
-        play_button = QPushButton("▶ Play")
-        pause_button = QPushButton("⏸ Pause")
-        stop_button = QPushButton("⏹ Stop")
-        next_button = QPushButton("Next ⏭")
+        self.prev_button = QPushButton("⏮ Previous")
+        self.play_button = QPushButton("▶ Play")
+        self.pause_button = QPushButton("⏸ Pause")
+        self.stop_button = QPushButton("⏹ Stop")
+        self.next_button = QPushButton("Next ⏭")
 
-        controls_layout.addWidget(prev_button)
-        controls_layout.addWidget(play_button)
-        controls_layout.addWidget(pause_button)
-        controls_layout.addWidget(stop_button)
-        controls_layout.addWidget(next_button)
+        controls_layout.addWidget(self.prev_button)
+        controls_layout.addWidget(self.play_button)
+        controls_layout.addWidget(self.pause_button)
+        controls_layout.addWidget(self.stop_button)
+        controls_layout.addWidget(self.next_button)
 
         main_layout.addLayout(controls_layout)
 
