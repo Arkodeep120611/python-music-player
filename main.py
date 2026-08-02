@@ -1,6 +1,14 @@
 import sys
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QLabel,
+    QHBoxLayout,
+    QMainWindow,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class MusicPlayerWindow(QMainWindow):
@@ -9,18 +17,35 @@ class MusicPlayerWindow(QMainWindow):
         self.setWindowTitle("Python Music Player")
         self.resize(900, 600)
 
-        # 1) Create a central widget and set it on the main window
+        # Central container
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
-        # 2) Create a vertical layout for the central widget
+        # Main vertical layout
         main_layout = QVBoxLayout()
         central_widget.setLayout(main_layout)
 
-        # 3) Add a simple header label
+        # Header
         now_playing_label = QLabel("Now Playing: Nothing loaded")
         now_playing_label.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(now_playing_label)
+
+        # Control bar (horizontal)
+        controls_layout = QHBoxLayout()
+
+        prev_button = QPushButton("⏮ Previous")
+        play_button = QPushButton("▶ Play")
+        pause_button = QPushButton("⏸ Pause")
+        stop_button = QPushButton("⏹ Stop")
+        next_button = QPushButton("Next ⏭")
+
+        controls_layout.addWidget(prev_button)
+        controls_layout.addWidget(play_button)
+        controls_layout.addWidget(pause_button)
+        controls_layout.addWidget(stop_button)
+        controls_layout.addWidget(next_button)
+
+        main_layout.addLayout(controls_layout)
 
 
 def main():
