@@ -62,6 +62,8 @@ class MusicPlayerWindow(QMainWindow):
         self.play_button.clicked.connect(self.play_selected_song)
         self.pause_button.clicked.connect(self.pause_song)
         self.stop_button.clicked.connect(self.stop_song)
+        self.next_button.clicked.connect(self.play_next_song)
+        self.prev_button.clicked.connect(self.play_previous_song)
 
     def _create_menu(self):
         """Create the menu bar and wire menu actions."""
@@ -112,6 +114,42 @@ class MusicPlayerWindow(QMainWindow):
     def stop_song(self):
         """Update label to show stopped state."""
         self.now_playing_label.setText("Now Playing: Stopped")
+
+    def play_next_song(self):
+        """Move selection to next playlist item and update now-playing label."""
+        total_items = self.playlist_widget.count()
+        if total_items == 0:
+            self.now_playing_label.setText("Now Playing: Playlist is empty")
+            return
+
+        current_row = self.playlist_widget.currentRow()
+
+        if current_row == -1:
+            # Nothing selected yet -> select first item
+            self.playlist_widget.setCurrentRow(0)
+        else:
+            next_row = min(current_row + 1, total_items - 1)
+            self.playlist_widget.setCurrentRow(next_row)
+
+        self.play_selected_song()
+
+    def play_previous_song(self):
+        """Move selection to previous playlist item and update now-playing label."""
+        total_items = self.playlist_widget.count()
+        if total_items == 0:
+            self.now_playing_label.setText("Now Playing: Playlist is empty")
+            return
+
+        current_row = self.playlist_widget.currentRow()
+
+        if current_row == -1:
+            # Nothing selected yet -> select first item
+            self.playlist_widget.setCurrentRow(0)
+        else:
+            previous_row = max(current_row - 1, 0)
+            self.playlist_widget.setCurrentRow(previous_row)
+
+        self.play_selected_song()
 
 
 def main():
