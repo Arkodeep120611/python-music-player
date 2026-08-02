@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QDoubleSpinBox,
     QCheckBox,
+    QMessageBox,
 )
 
 
@@ -45,6 +46,9 @@ class MusicPlayerWindow(QMainWindow):
         # Playback modes
         self.shuffle_enabled = False
         self.repeat_mode = "off"  # off, all, one
+
+        # Theme mode
+        self.dark_theme_enabled = False
 
         # Central container
         central_widget = QWidget()
@@ -109,8 +113,10 @@ class MusicPlayerWindow(QMainWindow):
         mode_layout = QHBoxLayout()
         self.shuffle_button = QPushButton("Shuffle: Off")
         self.repeat_button = QPushButton("Repeat: Off")
+        self.theme_button = QPushButton("Theme: Light")
         mode_layout.addWidget(self.shuffle_button)
         mode_layout.addWidget(self.repeat_button)
+        mode_layout.addWidget(self.theme_button)
         main_layout.addLayout(mode_layout)
 
         # Audio controls row (volume + mute + speed)
@@ -156,6 +162,7 @@ class MusicPlayerWindow(QMainWindow):
         # Wire mode controls
         self.shuffle_button.clicked.connect(self.toggle_shuffle)
         self.repeat_button.clicked.connect(self.cycle_repeat_mode)
+        self.theme_button.clicked.connect(self.toggle_theme)
 
         # Wire audio controls
         self.volume_slider.valueChanged.connect(self.change_volume)
@@ -203,6 +210,16 @@ class MusicPlayerWindow(QMainWindow):
         load_playlist_action.triggered.connect(self.load_playlist_m3u)
         file_menu.addAction(load_playlist_action)
 
+        view_menu = self.menuBar().addMenu("View")
+        toggle_theme_action = QAction("Toggle Light/Dark Theme", self)
+        toggle_theme_action.triggered.connect(self.toggle_theme)
+        view_menu.addAction(toggle_theme_action)
+
+        help_menu = self.menuBar().addMenu("Help")
+        about_action = QAction("About", self)
+        about_action.triggered.connect(self.show_about_dialog)
+        help_menu.addAction(about_action)
+
     def _setup_shortcuts(self):
         self.shortcut_space = QShortcut(QKeySequence(Qt.Key_Space), self)
         self.shortcut_space.activated.connect(self.play_pause_shortcut_action)
@@ -216,11 +233,13 @@ class MusicPlayerWindow(QMainWindow):
         self.shortcut_delete = QShortcut(QKeySequence(Qt.Key_Delete), self)
         self.shortcut_delete.activated.connect(self.remove_selected_tracks)
 
-        # Step 19: mute shortcut
         self.shortcut_mute = QShortcut(QKeySequence("Ctrl+M"), self)
         self.shortcut_mute.activated.connect(
             lambda: self.mute_checkbox.setChecked(not self.mute_checkbox.isChecked())
         )
+
+        self.shortcut_theme = QShortcut(QKeySequence("Ctrl+T"), self)
+        self.shortcut_theme.activated.connect(self.toggle_theme)
 
     # ---------- Utility messaging ----------
 
@@ -229,6 +248,84 @@ class MusicPlayerWindow(QMainWindow):
 
     def set_status(self, text, timeout_ms=3000):
         self.statusBar().showMessage(text, timeout_ms)
+
+    # ---------- Theme handling ----------
+
+    def apply_theme(self):
+        if self.dark_theme_enabled:
+            self.setStyleSheet(
+                """
+                QMainWindow, QWidget {
+                    background-color: #1e1e1e;
+                    color: #f0f0f0;
+                }
+                QPushButton {
+                    background-color: #2d2d2d;
+                    color: #f0f0f0;
+                    border: 1px solid #555;
+                    padding: 6px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #3a3a3a;
+                }
+                QListWidget {
+                    background-color: #252525;
+                    color: #f0f0f0;
+                    border: 1px solid #555;
+                }
+                QSlider::groove:horizontal {
+                    height: 6px;
+                    background: #444;
+                    border-radius: 3px;
+                }
+                QSlider::handle:horizontal {
+                    background: #bbbbbb;
+                    width: 12px;
+                    margin: -4px 0;
+                    border-radius: 6px;
+                }
+                QMenuBar, QMenu {
+                    background-color: #2a2a2a;
+                    color: #f0f0f0;
+                }
+                QStatusBar {
+                    background-color: #2a2a2a;
+                    color: #f0f0f0;
+                }
+                """
+            )
+            self.theme_button.setText("Theme: Dark")
+            self.set_status("Dark theme enabled")
+        else:
+            self.setStyleSheet("")
+            self.theme_button.setText("Theme: Light")
+            self.set_status("Light theme enabled")
+
+    def toggle_theme(self):
+        self.dark_theme_enabled = not self.dark_theme_enabled
+        self.apply_theme()
+
+    # ---------- About ----------
+
+    def show_about_dialog(self):
+        QMessageBox.about(
+            self,
+            "About Python Music Player",
+            (
+                "Python Music Player\n\n"
+                "Built with PySide6.\n\n"
+                "Features:\n"
+                "- Playlist add/remove + drag & drop\n"
+                "- Play/Pause/Stop/Next/Previous\n"
+                "- Shuffle + Repeat (Off/All/One)\n"
+                "- Conditional seek bar support\n"
+                "- Save/Load .m3u playlists\n"
+                "- Volume, mute, playback speed\n"
+                "- Keyboard shortcuts\n"
+                "- Persistent settings"
+            ),
+        )
 
     # ---------- Settings persistence ----------
 
@@ -261,6 +358,9 @@ class MusicPlayerWindow(QMainWindow):
         self.repeat_mode = saved_repeat
         self._refresh_repeat_button_text()
 
+        self.dark_theme_enabled = self.settings.value("ui/dark_theme", False, type=bool)
+        self.apply_theme()
+
         self.set_status("Settings loaded")
 
     def save_settings(self):
@@ -270,6 +370,7 @@ class MusicPlayerWindow(QMainWindow):
         self.settings.setValue("audio/speed", float(self.speed_spinbox.value()))
         self.settings.setValue("playback/shuffle", self.shuffle_enabled)
         self.settings.setValue("playback/repeat_mode", self.repeat_mode)
+        self.settings.setValue("ui/dark_theme", self.dark_theme_enabled)
 
     def _refresh_repeat_button_text(self):
         if self.repeat_mode == "off":
@@ -593,10 +694,7 @@ class MusicPlayerWindow(QMainWindow):
 
     def change_volume(self, value):
         self.audio_output.setVolume(value / 100.0)
-        if value == 0 and not self.mute_checkbox.isChecked():
-            self.set_status("Volume: 0%")
-        else:
-            self.set_status(f"Volume: {value}%")
+        self.set_status(f"Volume: {value}%")
 
     def toggle_mute(self, muted):
         self.audio_output.setMuted(muted)
