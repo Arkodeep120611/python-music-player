@@ -1,7 +1,7 @@
 import os
 import sys
 import random
-from PySide6.QtCore import Qt, QUrl, QSettings, QSize
+from PySide6.QtCore import Qt, QUrl, QSettings, QSize, QStandardPaths
 from PySide6.QtGui import QAction, QShortcut, QKeySequence
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
@@ -210,6 +210,18 @@ class MusicPlayerWindow(QMainWindow):
         load_playlist_action.triggered.connect(self.load_playlist_m3u)
         file_menu.addAction(load_playlist_action)
 
+        file_menu.addSeparator()
+
+        # Explicit Quit action. QKeySequence.StandardKey.Quit resolves to
+        # Ctrl+Q on Linux/Windows and Cmd+Q on macOS automatically.
+        # MenuRole.QuitRole tells macOS to relocate this into the app menu
+        # (under "Python Music Player") instead of leaving it in "File".
+        quit_action = QAction("Quit", self)
+        quit_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Quit))
+        quit_action.setMenuRole(QAction.MenuRole.QuitRole)
+        quit_action.triggered.connect(self.close)
+        file_menu.addAction(quit_action)
+
         view_menu = self.menuBar().addMenu("View")
         toggle_theme_action = QAction("Toggle Light/Dark Theme", self)
         toggle_theme_action.triggered.connect(self.toggle_theme)
@@ -217,6 +229,9 @@ class MusicPlayerWindow(QMainWindow):
 
         help_menu = self.menuBar().addMenu("Help")
         about_action = QAction("About", self)
+        # MenuRole.AboutRole relocates this into the macOS app menu too.
+        # On Linux it just stays under Help, which is the native convention there.
+        about_action.setMenuRole(QAction.MenuRole.AboutRole)
         about_action.triggered.connect(self.show_about_dialog)
         help_menu.addAction(about_action)
 
@@ -224,6 +239,8 @@ class MusicPlayerWindow(QMainWindow):
         self.shortcut_space = QShortcut(QKeySequence(Qt.Key_Space), self)
         self.shortcut_space.activated.connect(self.play_pause_shortcut_action)
 
+        # Qt automatically remaps "Ctrl" to "Cmd" in QKeySequence on macOS,
+        # so these strings work as-is on both Linux and macOS.
         self.shortcut_next = QShortcut(QKeySequence("Ctrl+Right"), self)
         self.shortcut_next.activated.connect(self.play_next_song)
 
@@ -460,10 +477,15 @@ class MusicPlayerWindow(QMainWindow):
             self.set_status("No supported files added")
 
     def open_files(self):
+        # Default to the platform's native Music folder (~/Music on both
+        # macOS and Linux) instead of an unspecified/last-used directory.
+        default_dir = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.MusicLocation
+        )
         file_paths, _ = QFileDialog.getOpenFileNames(
             self,
             "Select Music Files",
-            "",
+            default_dir,
             "Audio Files (*.mp3 *.wav *.flac *.ogg *.m4a);;All Files (*)",
         )
         self.add_files_from_paths(file_paths)
@@ -834,6 +856,14 @@ class MusicPlayerWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
+
+    # Setting these makes macOS show the correct app name in the menu
+    # bar (otherwise it defaults to "Python") and gives QSettings a
+    # consistent identity across platforms.
+    app.setOrganizationName("ArkodeepApps")
+    app.setApplicationName("Python Music Player")
+    app.setApplicationDisplayName("Python Music Player")
+
     window = MusicPlayerWindow()
     window.show()
     sys.exit(app.exec())
