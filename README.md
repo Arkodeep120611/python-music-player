@@ -1,6 +1,5 @@
-# Python Music Player (PySide6)
-
-A desktop music player built step-by-step with PySide6.
+# HarmonyPlayer
+A modern offline music player built with Python and PySide6.
 
 ## Features
 
